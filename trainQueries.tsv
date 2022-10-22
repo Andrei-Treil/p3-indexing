@@ -1,0 +1,12 @@
+query1-theethou-or	scene	or	thee	thou
+query1b-theethou-and	scene	and	thee	thou
+query1c-you	scene	and	you
+query2-goneril-or	play	or	goneril
+query2-goneril-and	play	and	goneril
+query3-wherefore	scene	and	wherefore art thou romeo
+query3b-wherefore2	scene	and	wherefore art	thou romeo
+query3c-wherefore3	scene	and	wherefore	art thou	romeo
+query4-thumb-and	play	and	romeo	thumb
+query4b-thumb-or	play	or	romeo	thumb
+query5-bear	play	and	pursue	bear
+query6-theandi	scene	and	the	and	i
