@@ -54,23 +54,81 @@ def main(inputFile,queriesFile,outputFolder):
     def doc_count(term):
         return len(inv_index[term])
 
+    #handle multi word phrases
+    def get_wordphrase(wordphrase):
+        #set with elems (docId,position)
+        query_res = set()
+        multiword = set()
+        for id,positions in inv_index[wordphrase[0]]:
+            for pos in positions:
+                multiword.add((id,pos))
+
+        wordphrase.pop(0)
+        for word in wordphrase:
+            curr_res = set()
+            for id,positions in inv_index[word]:
+                for pos in positions:
+                    #check if word occurs directly after previous hit
+                    if (id,pos-1) in multiword: 
+                        curr_res.add((id,pos))
+
+            multiword = curr_res.copy()
+            if len(multiword) == 0:
+                return multiword
+
+        for tup in multiword:
+            query_res.add(tup[0])
+
+        return query_res
+
+    def scene_query(and_or,phrases):
+        #set of docids which match the query
+        query_res = set()
+        for phrase in phrases:
+                multiphrase = phrase.split()
+                #if first wordphrase, get all results for that wordphrase
+                if len(query_res) == 0:
+                    if len(multiphrase) > 1:
+                        phrase_ids = get_wordphrase(multiphrase)      
+                    else:
+                        query_res = set([posting[0] for posting in inv_index[phrase]])
+                    continue
+                
+                if len(multiphrase) > 1:
+                    phrase_ids = get_wordphrase(multiphrase)
+                else:
+                    phrase_ids = set([posting[0] for posting in inv_index[phrase]])
+                
+                if and_or.lower() == "and":
+                    query_res = query_res & phrase_ids
+                else:
+                    query_res = query_res | phrase_ids
+
+        return query_res
+
     '''
     Run boolean queries
     Either return by PlayID or SceneID
     queryname - for each queryname create a file called results/queryname.txt
     scenePlay - either scene or play, to indiciate which id is used
     AndOr 
-    wordPhrase1 wordPhrase2 … wordPhraseN
+    wordPhrase1 wordPhrase2 … wordPhraseN - seperated by tabs, words seperated by spaces indicate a multiword phrase
     '''
     with open(queriesFile) as f:
         queries = f.readlines()
     
     for line in queries:
-        args = line.split()
+        args = line.split('/t')
         queryname = args[0]
         sceneplay = args[1]
         AndOr = args[2]
         wordPhrases = args[3:]
+
+        out_path = outputFolder + queryname + ".txt"
+        with open(out_path,'w') as f:
+            if sceneplay == "scene":
+                f.writelines(scene_query(AndOr,wordPhrases))
+
 
     return
 
