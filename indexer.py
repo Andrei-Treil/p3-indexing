@@ -21,12 +21,12 @@ def main(inputFile,queriesFile,outputFolder):
     process scenes to create index list
     playId - use when retrieving plays
     sceneId - use for retrieving scenes
-    sceneNum - 
     text - text of the scene
     '''
-    for doc in input_list:
+    for doc in input_list['corpus']:
         text = doc['text'].split()
-        docId = doc['sceneId']
+        sceneId = doc['sceneId']
+        playId = doc['playId']
         position = 0
         postings = defaultdict(list)
         
@@ -35,8 +35,8 @@ def main(inputFile,queriesFile,outputFolder):
             postings[term].append(position)
             position += 1
 
-        for key,val in postings:
-            inv_index[key].append((docId,val))
+        for key,val in postings.items():
+            inv_index[key].append((sceneId,playId,val))
 
     '''
     Add an appropriate API to your index to enable accessing the vocabulary, 
@@ -47,7 +47,7 @@ def main(inputFile,queriesFile,outputFolder):
         count = 0
 
         for posting in inv_index[term]:
-            count += len(posting[1])
+            count += len(posting[2])
 
         return count
 
@@ -55,33 +55,37 @@ def main(inputFile,queriesFile,outputFolder):
         return len(inv_index[term])
 
     #handle multi word phrases
-    def get_wordphrase(wordphrase):
-        #set with elems (docId,position)
+    #scene_play = 0 if scenes, 1 if plays
+    def get_wordphrase(wordphrase,scene_play):
+        #set of docIds that contain wordphrase
         query_res = set()
+        
         multiword = set()
-        for id,positions in inv_index[wordphrase[0]]:
+        for sceneId,playId,positions in inv_index[wordphrase[0]]:
             for pos in positions:
-                multiword.add((id,pos))
+                multiword.add((sceneId,playId,pos))
 
         wordphrase.pop(0)
         for word in wordphrase:
             curr_res = set()
-            for id,positions in inv_index[word]:
+            for sceneId,playId,positions in inv_index[word]:
                 for pos in positions:
                     #check if word occurs directly after previous hit
-                    if (id,pos-1) in multiword: 
-                        curr_res.add((id,pos))
+                    if (sceneId,playId,pos-1) in multiword: 
+                        curr_res.add((sceneId,playId,pos))
 
             multiword = curr_res.copy()
+
             if len(multiword) == 0:
                 return multiword
 
         for tup in multiword:
-            query_res.add(tup[0])
+            query_res.add(tup[scene_play])
 
         return query_res
 
-    def scene_query(and_or,phrases):
+    #scene_play = 0 if scene, 1 if play
+    def bool_query(and_or,phrases,scene_play):
         #set of docids which match the query
         query_res = set()
         for phrase in phrases:
@@ -89,15 +93,15 @@ def main(inputFile,queriesFile,outputFolder):
                 #if first wordphrase, get all results for that wordphrase
                 if len(query_res) == 0:
                     if len(multiphrase) > 1:
-                        phrase_ids = get_wordphrase(multiphrase)      
+                        query_res = get_wordphrase(multiphrase,scene_play)      
                     else:
-                        query_res = set([posting[0] for posting in inv_index[phrase]])
+                        query_res = set([posting[scene_play] for posting in inv_index[phrase]])
                     continue
                 
                 if len(multiphrase) > 1:
-                    phrase_ids = get_wordphrase(multiphrase)
+                    phrase_ids = get_wordphrase(multiphrase,scene_play)
                 else:
-                    phrase_ids = set([posting[0] for posting in inv_index[phrase]])
+                    phrase_ids = set([posting[scene_play] for posting in inv_index[phrase]])
                 
                 if and_or.lower() == "and":
                     query_res = query_res & phrase_ids
@@ -118,7 +122,8 @@ def main(inputFile,queriesFile,outputFolder):
         queries = f.readlines()
     
     for line in queries:
-        args = line.split('/t')
+        line = line.strip('\n')
+        args = line.split('\t')
         queryname = args[0]
         sceneplay = args[1]
         AndOr = args[2]
@@ -127,7 +132,11 @@ def main(inputFile,queriesFile,outputFolder):
         out_path = outputFolder + queryname + ".txt"
         with open(out_path,'w') as f:
             if sceneplay == "scene":
-                f.writelines(scene_query(AndOr,wordPhrases))
+                results = bool_query(AndOr,wordPhrases,0)
+            else:
+                results = bool_query(AndOr,wordPhrases,1)
+            for elem in results:
+                f.write(elem + "\n")
 
 
     return
