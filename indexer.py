@@ -135,7 +135,7 @@ def main(inputFile,queriesFile,outputFolder):
                 results = bool_query(AndOr,wordPhrases,0)
             else:
                 results = bool_query(AndOr,wordPhrases,1)
-            for elem in results:
+            for elem in sorted(results):
                 f.write(elem + "\n")
 
 
