@@ -2,14 +2,15 @@ import sys
 import os
 import gzip
 import json
-from collections import defaultdict
+from collections import defaultdict,Counter
+import math
 
 '''
 inputFile - file to be indexed
 queriesFile - file of queries
 outputFolder - location to store result
 '''
-def main(inputFile,queriesFile,outputFolder):
+def main(inputFile,queriesFile,outputFile):
     #convert inputfile to list of dicts
     with gzip.open(inputFile,'rt',encoding='utf-8') as f:
         input_list = json.load(f)
@@ -17,6 +18,14 @@ def main(inputFile,queriesFile,outputFolder):
     #inverted list with format: {'term': [(docId,positions[])]}
     inv_index = defaultdict(list)
     
+    #counter to count number of plays and scenes
+    scene_counter = defaultdict(int)
+    play_counter = defaultdict(int)
+
+    #count doc length
+    scene_length = defaultdict(int)
+    play_length = defaultdict(int)
+
     '''
     process scenes to create index list
     playId - use when retrieving plays
@@ -27,6 +36,10 @@ def main(inputFile,queriesFile,outputFolder):
         text = doc['text'].split()
         sceneId = doc['sceneId']
         playId = doc['playId']
+        scene_counter[sceneId] += 1
+        play_counter[playId] += 1
+        scene_length[sceneId] += len(text)
+        play_length[playId] += len(text)
         position = 0
         postings = defaultdict(list)
         
@@ -36,23 +49,31 @@ def main(inputFile,queriesFile,outputFolder):
             position += 1
 
         for key,val in postings.items():
-            inv_index[key].append((sceneId,playId,val))
+            inv_index[key].append((sceneId,playId,val,text))
+        
+    NUM_SCENES = len(scene_counter)
+    NUM_PLAYS = len(play_counter)
 
-    '''
-    Add an appropriate API to your index to enable accessing the vocabulary, 
-    term counts, document counts and other statistics that you will require to 
-    perform the query evaluation activities. 
-    '''
-    def term_count(term):
-        count = 0
 
-        for posting in inv_index[term]:
-            count += len(posting[2])
+    ###################################
+    #FIX THIS LATER
 
-        return count
+    total_len = 0
+    for val in scene_length.values():
+        total_len += val
 
-    def doc_count(term):
-        return len(inv_index[term])
+    LEN_SCENES = total_len/len(scene_length)
+
+    total_len = 0
+    for val in play_length.values():
+        total_len += val
+
+    LEN_PLAYS = total_len/len(play_length)
+
+    DOC_LEN = (LEN_SCENES,LEN_PLAYS)
+
+    ####################################
+
 
     #handle multi word phrases
     #scene_play = 0 if scenes, 1 if plays
@@ -61,7 +82,7 @@ def main(inputFile,queriesFile,outputFolder):
         query_res = set()
         
         multiword = set()
-        for sceneId,playId,positions in inv_index[wordphrase[0]]:
+        for sceneId,playId,positions,text in inv_index[wordphrase[0]]:
             for pos in positions:
                 multiword.add((sceneId,playId,pos))
 
@@ -110,6 +131,44 @@ def main(inputFile,queriesFile,outputFolder):
 
         return query_res
 
+
+    '''
+    k1 = 1.8, k2 = 5, b = 0.75
+    Execute bm25 ranking with the above values
+    log(N-ni+0.5 / ni+0.5) * (k1+1)fi/K+fi * (k2+1)qfi/k2+qfi
+    N - total docs
+    ni - number of documents term i appears in
+    fi - frequency of term i in the document
+    qfi - frequency of term i in the query
+    K - k1((1-b)+b*(dl/avg_dl))
+    '''
+    def bm25(query,scene_play):
+        res = defaultdict(int)
+
+        k1 = 1.8 
+        k2 = 5
+        b = 0.75
+
+        query_terms = Counter(query)
+
+        for word in query:
+            if scene_play == 0:
+                N = NUM_SCENES
+            else:
+                N = NUM_PLAYS
+
+            qfi = query_terms[word]
+            #docs containing word
+            docs = set([(posting[scene_play],len(posting[2]),posting[3]) for posting in inv_index[word]])
+            ni = len(docs)
+
+            for doc in docs:
+                K = k1*(1-b)+b*(len(doc[2])/DOC_LEN[scene_play])
+                fi = doc[1]/len(doc[2])
+                res[doc[0]] += math.log(N-ni+0.5 / ni+0.5) * ((k1+1)*fi)/(K+fi) * (k2+1)*qfi/(k2+qfi)
+     
+        return sorted(res)
+
     '''
     Run boolean queries
     Either return by PlayID or SceneID
@@ -135,9 +194,9 @@ def main(inputFile,queriesFile,outputFolder):
                 results = bool_query(AndOr,wordPhrases,0)
             else:
                 results = bool_query(AndOr,wordPhrases,1)
+
             for elem in sorted(results):
                 f.write(elem + "\n")
-
 
     return
 
@@ -148,7 +207,5 @@ if __name__ == '__main__':
     argv_len = len(sys.argv)
     inputFile = sys.argv[1] if argv_len >= 2 else 'shakespeare-scenes.json.gz'
     queriesFile = sys.argv[2] if argv_len >= 3 else 'trainQueries.tsv'
-    outputFolder = sys.argv[3] if argv_len >= 4 else 'results/'
-    if not os.path.isdir(outputFolder):
-        os.mkdir(outputFolder)
-    main(inputFile,queriesFile,outputFolder)
+    outputFile = sys.argv[3] if argv_len >= 4 else 'trainQueries.results'
+    main(inputFile,queriesFile,outputFile)
