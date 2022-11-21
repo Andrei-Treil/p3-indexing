@@ -36,10 +36,12 @@ def main(inputFile,queriesFile,outputFile):
         text = doc['text'].split()
         sceneId = doc['sceneId']
         playId = doc['playId']
+
         scene_counter[sceneId] += 1
         play_counter[playId] += 1
         scene_length[sceneId] += len(text)
         play_length[playId] += len(text)
+       
         position = 0
         postings = defaultdict(list)
         
@@ -58,19 +60,21 @@ def main(inputFile,queriesFile,outputFile):
     ###################################
     #FIX THIS LATER
 
-    total_len = 0
+    SCENE_WORDS = 0
     for val in scene_length.values():
-        total_len += val
+        SCENE_WORDS += val
 
-    LEN_SCENES = total_len/len(scene_length)
 
-    total_len = 0
+    LEN_SCENES = SCENE_WORDS/len(scene_length)
+
+    PLAY_WORDS = 0
     for val in play_length.values():
-        total_len += val
+        PLAY_WORDS += val
 
-    LEN_PLAYS = total_len/len(play_length)
+    LEN_PLAYS = PLAY_WORDS/len(play_length)
 
-    DOC_LEN = (LEN_SCENES,LEN_PLAYS)
+    DOC_LEN_AVG = (LEN_SCENES,LEN_PLAYS)
+    DOC_WORDS = (SCENE_WORDS,PLAY_WORDS)
 
     ####################################
 
@@ -163,11 +167,44 @@ def main(inputFile,queriesFile,outputFile):
             ni = len(docs)
 
             for doc in docs:
-                K = k1*(1-b)+b*(len(doc[2])/DOC_LEN[scene_play])
+                K = k1*(1-b)+b*(len(doc[2])/DOC_LEN_AVG[scene_play])
                 fi = doc[1]/len(doc[2])
                 res[doc[0]] += math.log(N-ni+0.5 / ni+0.5) * ((k1+1)*fi)/(K+fi) * (k2+1)*qfi/(k2+qfi)
      
-        return sorted(res)
+        return sorted(res,reverse=True)
+
+
+    '''
+    mu = 300
+    log((fqi,D + mu * cqi/|C|) / (|D|+mu))
+    |D| - # of word occurrences in the document
+    |C| - # of word occurrences in the collection
+    fqi,D - # of times a word qi occurs in document D
+    cqi - # of times a query word occurs in the collection
+    '''
+    def ql_dirichlet(query,scene_play):
+        res = defaultdict(int)
+        
+        mu = 300
+        C = DOC_WORDS[scene_play]
+        
+        for word in query:
+            docs = defaultdict(int)
+            cqi = 0
+            for posting in inv_index[word]:
+                cqi += len(posting[2])
+                docs[posting[scene_play]] += len(posting[2])
+
+            for doc,fqi in docs.items():
+                if scene_play == 0:
+                    D = scene_counter[doc]
+                else:
+                    D = play_counter[doc]
+
+                res[doc] += math.log((fqi + (mu * cqi/C)) / (D + mu))
+
+                
+        return sorted(res,reverse=True)
 
     '''
     Run boolean queries
