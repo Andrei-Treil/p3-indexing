@@ -65,13 +65,13 @@ def main(inputFile,queriesFile,outputFile):
         SCENE_WORDS += val
 
 
-    LEN_SCENES = SCENE_WORDS/len(scene_length)
+    LEN_SCENES = SCENE_WORDS/NUM_SCENES
 
     PLAY_WORDS = 0
     for val in play_length.values():
         PLAY_WORDS += val
 
-    LEN_PLAYS = PLAY_WORDS/len(play_length)
+    LEN_PLAYS = PLAY_WORDS/NUM_PLAYS
 
     DOC_LEN_AVG = (LEN_SCENES,LEN_PLAYS)
     DOC_WORDS = (SCENE_WORDS,PLAY_WORDS)
@@ -163,15 +163,15 @@ def main(inputFile,queriesFile,outputFile):
 
             qfi = query_terms[word]
             #docs containing word
-            docs = set([(posting[scene_play],len(posting[2]),posting[3]) for posting in inv_index[word]])
+            docs = [(posting[scene_play],len(posting[2]),len(posting[3])) for posting in inv_index[word]]
+            #docs = inv_index[word]
             ni = len(docs)
 
-            for doc in docs:
-                K = k1*(1-b)+b*(len(doc[2])/DOC_LEN_AVG[scene_play])
-                fi = doc[1]/len(doc[2])
-                res[doc[0]] += math.log(N-ni+0.5 / ni+0.5) * ((k1+1)*fi)/(K+fi) * (k2+1)*qfi/(k2+qfi)
-     
-        return sorted(res,reverse=True)
+            for id,fi,dl in docs:
+                K = k1*((1-b)+(b*dl/DOC_LEN_AVG[scene_play]))
+                res[id] += math.log(((N-ni+0.5) / (ni+0.5))) * (((k1+1)*fi)/(K+fi)) * (((k2+1)*qfi)/(k2+qfi))
+                
+        return sorted(res.items(),key=lambda x: x[1],reverse=True)
 
 
     '''
@@ -184,27 +184,47 @@ def main(inputFile,queriesFile,outputFile):
     '''
     def ql_dirichlet(query,scene_play):
         res = defaultdict(int)
-        
+        #store len of encountered docs
+        prev_ids = defaultdict(int)
+        #store cqi/C for previous query words
+        query_terms = defaultdict(int)
         mu = 300
-        C = DOC_WORDS[scene_play]
-        
+        C = DOC_WORDS[scene_play]      
+
+
         for word in query:
-            docs = defaultdict(int)
+            old_ids = prev_ids.copy()
+            curr_ids = defaultdict(int)
+
             cqi = 0
-            for posting in inv_index[word]:
-                cqi += len(posting[2])
-                docs[posting[scene_play]] += len(posting[2])
+            for post in inv_index[word]:
+                curr_ids[post[scene_play]] += len(post[2])
+                try:
+                    del old_ids[post[scene_play]]
+                except:
+                    pass
+                cqi += len(post[2])
+            
+            #if a prev doc not encountered in postings, add score with fqi = 0
+            for old_doc,size in old_ids.items():
+                res[old_doc] += math.log((mu * cqi/C) / (size + mu))
 
-            for doc,fqi in docs.items():
-                if scene_play == 0:
-                    D = scene_counter[doc]
-                else:
-                    D = play_counter[doc]
+            query_terms[word] += cqi/C
 
-                res[doc] += math.log((fqi + (mu * cqi/C)) / (D + mu))
+            docs = [(posting[scene_play],len(posting[2]),len(posting[3])) for posting in inv_index[word]]
 
-                
-        return sorted(res,reverse=True)
+            for id,fqi,D in docs:
+                prev_ids[id] = D
+
+                #if first time encountering doc, retroactively add scores for prev words to this doc
+                if res[id] == 0 and len(query_terms) > 1:
+                    for term,val in query_terms.items():
+                        res[id] += math.log((mu * val) / (D + mu))
+
+                res[id] += math.log((fqi + (mu * cqi/C)) / (D + mu))
+
+
+        return sorted(res.items(),key=lambda x: x[1],reverse=True)
 
     '''
     Run boolean queries
@@ -220,20 +240,22 @@ def main(inputFile,queriesFile,outputFile):
     for line in queries:
         line = line.strip('\n')
         args = line.split('\t')
-        queryname = args[0]
-        sceneplay = args[1]
-        AndOr = args[2]
+        queryName = args[0]
+        scenePlay = 0 if args[1] == "scene" else 1
+        qType = args[2].lower()
         wordPhrases = args[3:]
 
-        out_path = outputFolder + queryname + ".txt"
-        with open(out_path,'w') as f:
-            if sceneplay == "scene":
-                results = bool_query(AndOr,wordPhrases,0)
+        out_path = outputFile
+        with open(out_path,'a') as f:
+            if qType == "bm25":
+                results = bm25(wordPhrases,scenePlay)
             else:
-                results = bool_query(AndOr,wordPhrases,1)
+                results = ql_dirichlet(wordPhrases,scenePlay)
 
-            for elem in sorted(results):
-                f.write(elem + "\n")
+            rank = 1
+            for id,score in results[:100]:
+                f.write(queryName + " skip " + id + " " + str(rank) + " " + str(score) + " atreil@umass.edu\n")
+                rank += 1
 
     return
 
