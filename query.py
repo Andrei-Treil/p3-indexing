@@ -51,19 +51,16 @@ def main(inputFile,queriesFile,outputFile):
             position += 1
 
         for key,val in postings.items():
-            inv_index[key].append((sceneId,playId,val,text))
-        
+            inv_index[key].append((sceneId,playId,val,scene_length[sceneId],play_length[playId]))
+
+
+    #get length of all scenes and plays 
     NUM_SCENES = len(scene_counter)
     NUM_PLAYS = len(play_counter)
-
-
-    ###################################
-    #FIX THIS LATER
 
     SCENE_WORDS = 0
     for val in scene_length.values():
         SCENE_WORDS += val
-
 
     LEN_SCENES = SCENE_WORDS/NUM_SCENES
 
@@ -76,7 +73,6 @@ def main(inputFile,queriesFile,outputFile):
     DOC_LEN_AVG = (LEN_SCENES,LEN_PLAYS)
     DOC_WORDS = (SCENE_WORDS,PLAY_WORDS)
 
-    ####################################
 
 
     #handle multi word phrases
@@ -158,13 +154,16 @@ def main(inputFile,queriesFile,outputFile):
         for word in query:
             if scene_play == 0:
                 N = NUM_SCENES
+                docs = set([(posting[0],len(posting[2]),posting[3]) for posting in inv_index[word]])
             else:
                 N = NUM_PLAYS
-
+                plays_dict = defaultdict(int)
+                #get total length of occurences
+                for doc in inv_index[word]:
+                    plays_dict[doc[1]] += len(doc[2])
+                docs = set([(posting[1],plays_dict[posting[1]],play_length[posting[1]]) for posting in inv_index[word]])
+            
             qfi = query_terms[word]
-            #docs containing word
-            docs = [(posting[scene_play],len(posting[2]),len(posting[3])) for posting in inv_index[word]]
-            #docs = inv_index[word]
             ni = len(docs)
 
             for id,fi,dl in docs:
@@ -188,17 +187,17 @@ def main(inputFile,queriesFile,outputFile):
         prev_ids = defaultdict(int)
         #store cqi/C for previous query words
         query_terms = defaultdict(int)
+        
         mu = 300
         C = DOC_WORDS[scene_play]      
-
 
         for word in query:
             old_ids = prev_ids.copy()
             curr_ids = defaultdict(int)
-
             cqi = 0
+
             for post in inv_index[word]:
-                curr_ids[post[scene_play]] += len(post[2])
+                curr_ids[post[scene_play]] += post[3+scene_play]
                 try:
                     del old_ids[post[scene_play]]
                 except:
@@ -211,18 +210,23 @@ def main(inputFile,queriesFile,outputFile):
 
             query_terms[word] += cqi/C
 
-            docs = [(posting[scene_play],len(posting[2]),len(posting[3])) for posting in inv_index[word]]
+            if scene_play == 0:
+                docs = set([(posting[0],len(posting[2]),posting[3]) for posting in inv_index[word]])
+            else:
+                plays_dict = defaultdict(int)
+                #get total length of occurences
+                for doc in inv_index[word]:
+                    plays_dict[doc[1]] += len(doc[2])
+                docs = set([(posting[1],plays_dict[posting[1]],play_length[posting[1]]) for posting in inv_index[word]])
 
             for id,fqi,D in docs:
                 prev_ids[id] = D
-
                 #if first time encountering doc, retroactively add scores for prev words to this doc
                 if res[id] == 0 and len(query_terms) > 1:
                     for term,val in query_terms.items():
                         res[id] += math.log((mu * val) / (D + mu))
 
                 res[id] += math.log((fqi + (mu * cqi/C)) / (D + mu))
-
 
         return sorted(res.items(),key=lambda x: x[1],reverse=True)
 
